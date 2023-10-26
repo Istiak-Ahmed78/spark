@@ -1,98 +1,177 @@
+import 'dart:async';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:prozapoti/view/intro_page.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:webview_flutter/webview_flutter.dart';
 
-void main() => runApp(const MaterialApp(
-    debugShowCheckedModeBanner: false, home: WebViewExample()));
-
-class WebViewExample extends StatefulWidget {
-  const WebViewExample({super.key});
-
-  @override
-  State<WebViewExample> createState() => _WebViewExampleState();
+void main() {
+  runApp(const MyApp());
 }
 
-class _WebViewExampleState extends State<WebViewExample> {
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(4),
-            alignment: Alignment.center,
-            child: const Text(
-              '',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-          ),
-          const Expanded(
-            child: MyWebViewWidget(),
-          ),
-        ],
-      ),
+    return const MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: MyHomePage(),
     );
   }
 }
 
-class MyWebViewWidget extends StatefulWidget {
-  const MyWebViewWidget({super.key});
+class MyHomePage extends StatefulWidget {
+  const MyHomePage({super.key});
 
   @override
-  State<MyWebViewWidget> createState() => _MyWebViewWidgetState();
+  State<MyHomePage> createState() => _MyHomePageState();
 }
 
-class _MyWebViewWidgetState extends State<MyWebViewWidget> {
-  final String url = 'https://www.humairasbd.com';
-  late final WebViewController controller;
+class _MyHomePageState extends State<MyHomePage> {
+  //*********************************Initializations************************************* */
+  int pageIndex = 0;
+  PullToRefreshController? pullToRefreshController;
+  InAppWebViewController? webViewController;
+  void onStart() {
+    Timer(
+        const Duration(seconds: 2),
+        () => setState(() {
+              pageIndex = 1;
+            }));
 
-  /// External link idenfiers
-  bool isSocialMediaLink(String rawLink) =>
-      rawLink.startsWith('whatsapp') ||
-      rawLink.contains('fb') ||
-      rawLink.contains('youtube') ||
-      rawLink.contains('twitter') ||
-      rawLink.contains('instagram') ||
-      rawLink.contains('tiktok');
-  bool isCantctNumber(String rawLink) => rawLink.startsWith('tel:+88');
-  bool isEmail(String rawLink) => rawLink.contains('@gmail.com');
+    pullToRefreshController = kIsWeb
+        ? null
+        : PullToRefreshController(
+            onRefresh: () async {
+              if (defaultTargetPlatform == TargetPlatform.android) {
+                webViewController?.reload();
+              } else if (defaultTargetPlatform == TargetPlatform.iOS) {
+                webViewController?.loadUrl(urlRequest: URLRequest(url: await webViewController?.getUrl()));
+              }
+            },
+          );
+  }
 
   @override
   void initState() {
     super.initState();
-    controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onProgress: (int progress) {},
-          onPageStarted: (String url) {},
-          onPageFinished: (String url) {},
-          onWebResourceError: (WebResourceError error) {},
-          onNavigationRequest: (NavigationRequest request) {
-            if (isSocialMediaLink(request.url) ||
-                isCantctNumber(request.url) ||
-                isEmail(request.url)) {
-              _launchURL(request.url);
-              return NavigationDecision.prevent;
-            }
-            return NavigationDecision.navigate;
-          },
-        ),
-      )
-      ..loadRequest(Uri.parse(url));
+    onStart();
   }
 
-  _launchURL(String url) async {
-    late Uri uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+//***********************************Social application navigation control management************************************** */
+  final String url = 'https://www.humairasbd.com';
+  bool isSocialMediaLink(String rawLink) =>
+      rawLink.startsWith('whatsapp') || rawLink.contains('fb') || rawLink.contains('youtube') || rawLink.contains('twitter') || rawLink.contains('instagram') || rawLink.contains('tiktok');
+
+  bool isCantctNumber(String rawLink) => rawLink.startsWith('tel:+88');
+
+  bool isEmail(String rawLink) => rawLink.contains('@gmail.com');
+
+  _launchURL(Uri url) async {
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
     } else {
       throw 'Could not launch $url';
     }
   }
 
+  //*************************************Application exit Control logic************************************ */
+  Future<bool> showExitPopup(context) async {
+    return await showDialog(
+        context: context,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            content: SizedBox(
+              height: 90,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text("Do you want to exit?"),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () {
+                            exit(0);
+                          },
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade800),
+                          child: const Text("Yes"),
+                        ),
+                      ),
+                      const SizedBox(width: 15),
+                      Expanded(
+                          child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                        ),
+                        child: const Text("No", style: TextStyle(color: Colors.black)),
+                      ))
+                    ],
+                  )
+                ],
+              ),
+            ),
+          );
+        });
+  }
+
+//*********************************************Build method******************************************* */
   @override
   Widget build(BuildContext context) {
-    return WebViewWidget(controller: controller);
+    Future<bool> onWillPopPress() async {
+      if (await webViewController?.canGoBack() ?? false) {
+        webViewController?.goBack();
+        return false;
+      }
+      return showExitPopup(context);
+    }
+
+    return WillPopScope(
+        onWillPop: () => onWillPopPress(),
+        child: Scaffold(
+          body: SafeArea(
+            child: pageIndex == 0
+                ? const IntroPage()
+                : InAppWebView(
+                    initialUrlRequest: URLRequest(url: Uri.parse(url)),
+                    initialOptions: InAppWebViewGroupOptions(
+                      crossPlatform: InAppWebViewOptions(useShouldOverrideUrlLoading: true),
+                    ),
+                    pullToRefreshController: pullToRefreshController,
+                    onWebViewCreated: (InAppWebViewController controller) {
+                      webViewController = controller;
+                    },
+                    shouldOverrideUrlLoading: (controller, request) async {
+                      var url = request.request.url;
+
+                      if (!["http", "https", "file", "chrome", "data", "javascript", "about"].contains(url?.scheme)) {
+                        if (url != null) {
+                          await _launchURL(
+                            url,
+                          );
+
+                          return NavigationActionPolicy.CANCEL;
+                        }
+                      }
+
+                      return NavigationActionPolicy.ALLOW;
+                    },
+                    onLoadStop: (controller, url) {
+                      pullToRefreshController?.endRefreshing();
+                    },
+                    onProgressChanged: (controller, progress) {
+                      if (progress == 100) {
+                        pullToRefreshController?.endRefreshing();
+                      }
+                    }),
+          ),
+        ));
   }
 }
